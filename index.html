@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>👾 Space Invaders</title>
+    <title>👾 Space Invaders V2 - Level & Power-Ups</title>
     <style>
         * { touch-action: none; user-select: none; }
         body {
@@ -13,45 +13,108 @@
             justify-content: center;
             align-items: center;
             min-height: 100vh;
-            background: #000;
+            background: linear-gradient(180deg, #000428 0%, #004e92 100%);
             font-family: 'Courier New', monospace;
             overflow: hidden;
         }
         canvas {
             border: 3px solid #0f0;
-            box-shadow: 0 0 20px #0f0;
+            box-shadow: 0 0 30px #0f0, 0 0 60px #00d9ff;
             max-width: 100vw;
-            max-height: 60vh;
+            max-height: 55vh;
         }
-        .score {
-            color: #0f0;
-            font-size: 24px;
+        .ui-panel {
+            display: flex;
+            gap: 30px;
             margin-bottom: 10px;
+            color: #0f0;
+            font-size: 18px;
+            text-shadow: 0 0 10px #0f0;
+        }
+        .powerups {
+            display: flex;
+            gap: 10px;
+            margin-top: 10px;
+            flex-wrap: wrap;
+            justify-content: center;
+        }
+        .powerup-icon {
+            width: 50px;
+            height: 50px;
+            border: 2px solid #333;
+            border-radius: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 24px;
+            opacity: 0.3;
+            transition: all 0.3s;
+        }
+        .powerup-icon.active {
+            opacity: 1;
+            border-color: #ffd700;
+            box-shadow: 0 0 15px #ffd700;
+            animation: pulse 1s infinite;
+        }
+        @keyframes pulse {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.1); }
         }
         .controls {
             display: flex;
-            gap: 20px;
-            margin-top: 20px;
+            gap: 15px;
+            margin-top: 15px;
         }
         .btn {
-            width: 80px;
-            height: 80px;
+            width: 70px;
+            height: 70px;
             background: rgba(0, 255, 0, 0.2);
             border: 2px solid #0f0;
             border-radius: 10px;
-            font-size: 30px;
+            font-size: 28px;
             color: #0f0;
             display: flex;
             align-items: center;
             justify-content: center;
+            cursor: pointer;
         }
-        .btn:active { background: rgba(0, 255, 0, 0.5); }
+        .btn:active { background: rgba(0, 255, 0, 0.5); transform: scale(0.95); }
         .fire-btn {
-            width: 100px;
-            height: 100px;
-            background: rgba(255, 0, 0, 0.3);
-            border-color: #f00;
-            color: #f00;
+            width: 90px;
+            height: 90px;
+            background: linear-gradient(135deg, #ff6b6b, #ff0000);
+            border-color: #ff0000;
+            font-size: 35px;
+        }
+        .level-screen {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(0,0,0,0.9);
+            border: 3px solid #0f0;
+            padding: 40px;
+            border-radius: 20px;
+            text-align: center;
+            color: #0f0;
+            display: none;
+            z-index: 100;
+        }
+        .level-screen h2 {
+            font-size: 36px;
+            margin-bottom: 20px;
+            text-shadow: 0 0 20px #0f0;
+        }
+        .level-screen button {
+            padding: 15px 30px;
+            font-size: 20px;
+            background: #0f0;
+            color: #000;
+            border: none;
+            border-radius: 10px;
+            cursor: pointer;
+            font-family: inherit;
+            margin-top: 20px;
         }
         @media (min-width: 600px) {
             .controls { display: none; }
@@ -59,57 +122,174 @@
     </style>
 </head>
 <body>
-    <div class="score">Score: <span id="score">0</span> | Leben: <span id="lives">3</span></div>
-    <canvas id="game" width="600" height="500"></canvas>
+    <div class="ui-panel">
+        <div>Score: <span id="score">0</span></div>
+        <div>Level: <span id="level">1</span></div>
+        <div>Leben: <span id="lives">3</span></div>
+        <div>Highscore: <span id="highscore">0</span></div>
+    </div>
+    
+    <canvas id="game" width="700" height="550"></canvas>
+    
+    <div class="powerups">
+        <div class="powerup-icon" id="powerup-rapid" title="Rapid Fire">⚡</div>
+        <div class="powerup-icon" id="powerup-triple" title="Triple Shot">🔱</div>
+        <div class="powerup-icon" id="powerup-shield" title="Shield">🛡️</div>
+        <div class="powerup-icon" id="powerup-bomb" title="Mega Bomb">💣</div>
+    </div>
+    
     <div class="controls">
         <div class="btn" ontouchstart="moveLeft()" ontouchend="stopMove()">⬅️</div>
         <div class="btn fire-btn" ontouchstart="fire()">🔥</div>
         <div class="btn" ontouchstart="moveRight()" ontouchend="stopMove()">➡️</div>
     </div>
+    
+    <div class="level-screen" id="levelScreen">
+        <h2>🎉 Level <span id="nextLevel">2</span></h2>
+        <p>Gut gemacht! Bereit für den nächsten Angriff?</p>
+        <button onclick="nextLevel()">WEITER ▶️</button>
+    </div>
+    
     <script>
         const canvas = document.getElementById('game');
         const ctx = canvas.getContext('2d');
         
+        // Game state
         let score = 0;
+        let level = 1;
         let lives = 3;
+        let highscore = localStorage.getItem('spaceInvadersHighscore') || 0;
+        document.getElementById('highscore').textContent = highscore;
         
+        // Player
         const player = {
-            x: canvas.width / 2 - 25,
-            y: canvas.height - 60,
-            width: 50,
-            height: 30,
-            speed: 0
+            x: canvas.width / 2 - 30,
+            y: canvas.height - 70,
+            width: 60,
+            height: 40,
+            speed: 0,
+            shield: false,
+            rapidFire: false,
+            tripleShot: false,
+            megaBomb: false
         };
         
+        // Bullets
         const bullets = [];
-        const invaders = [];
+        let lastShot = 0;
+        
+        // Invaders
+        let invaders = [];
+        let invaderDirection = 1;
+        let invaderSpeed = 0.3;
+        
+        // Power-ups
+        const powerUps = [];
+        const powerUpTypes = [
+            { type: 'rapid', emoji: '⚡', duration: 5000 },
+            { type: 'triple', emoji: '🔱', duration: 5000 },
+            { type: 'shield', emoji: '🛡️', duration: 8000 },
+            { type: 'bomb', emoji: '💣', duration: 0 }
+        ];
+        
+        // Particles
         const particles = [];
         
-        // Create invaders
-        for (let row = 0; row < 4; row++) {
-            for (let col = 0; col < 8; col++) {
-                invaders.push({
-                    x: 60 + col * 60,
-                    y: 50 + row * 50,
-                    width: 40,
-                    height: 30,
-                    alive: true,
-                    direction: 1
-                });
-            }
+        // Stars background
+        const stars = [];
+        for (let i = 0; i < 100; i++) {
+            stars.push({
+                x: Math.random() * canvas.width,
+                y: Math.random() * canvas.height,
+                size: Math.random() * 2,
+                speed: Math.random() * 0.5 + 0.1
+            });
         }
         
-        function moveLeft() { player.speed = -5; }
-        function moveRight() { player.speed = 5; }
+        // Initialize level
+        function initLevel() {
+            invaders = [];
+            const rows = 3 + level;
+            const cols = 6 + Math.min(level, 4);
+            
+            for (let row = 0; row < rows; row++) {
+                for (let col = 0; col < cols; col++) {
+                    let type = 'normal';
+                    let hp = 1;
+                    let color = '#f0f';
+                    let points = 10;
+                    
+                    if (row === 0) {
+                        type = 'boss';
+                        hp = 3;
+                        color = '#ff0000';
+                        points = 50;
+                    } else if (row === 1) {
+                        type = 'tank';
+                        hp = 2;
+                        color = '#ff8800';
+                        points = 25;
+                    } else if (row === rows - 1) {
+                        type = 'fast';
+                        hp = 1;
+                        color = '#00ffff';
+                        points = 15;
+                    }
+                    
+                    invaders.push({
+                        x: 50 + col * 70,
+                        y: 40 + row * 55,
+                        width: 50,
+                        height: 40,
+                        type: type,
+                        hp: hp,
+                        maxHp: hp,
+                        color: color,
+                        points: points,
+                        alive: true
+                    });
+                }
+            }
+            
+            invaderSpeed = 0.3 + (level * 0.1);
+        }
+        
+        initLevel();
+        
+        // Controls
+        function moveLeft() { player.speed = -6; }
+        function moveRight() { player.speed = 6; }
         function stopMove() { player.speed = 0; }
+        
         function fire() {
-            bullets.push({
-                x: player.x + player.width / 2,
-                y: player.y,
-                width: 4,
-                height: 10,
-                speed: 8
-            });
+            const now = Date.now();
+            const fireRate = player.rapidFire ? 100 : 300;
+            
+            if (now - lastShot > fireRate) {
+                lastShot = now;
+                
+                if (player.megaBomb) {
+                    // Mega bomb - destroys all invaders
+                    invaders.forEach(inv => {
+                        if (inv.alive) {
+                            inv.hp = 0;
+                            if (inv.hp <= 0) {
+                                inv.alive = false;
+                                score += inv.points;
+                                createExplosion(inv.x + inv.width/2, inv.y + inv.height/2, inv.color);
+                            }
+                        }
+                    });
+                    player.megaBomb = false;
+                    updatePowerUpUI();
+                } else if (player.tripleShot) {
+                    bullets.push({x: player.x + player.width/2, y: player.y, dx: 0, dy: -8});
+                    bullets.push({x: player.x + 10, y: player.y, dx: -2, dy: -7});
+                    bullets.push({x: player.x + player.width - 10, y: player.y, dx: 2, dy: -7});
+                } else {
+                    bullets.push({x: player.x + player.width/2, y: player.y, dx: 0, dy: -8});
+                }
+            }
         }
         
         // Keyboard
@@ -120,13 +300,12 @@
         });
         document.addEventListener('keyup', stopMove);
         
-        // Touch on canvas
-        let touchStartX = 0;
+        // Touch
         canvas.addEventListener('touchstart', (e) => {
-            touchStartX = e.touches[0].clientX;
             const rect = canvas.getBoundingClientRect();
             const x = e.touches[0].clientX - rect.left;
             const y = e.touches[0].clientY - rect.top;
+            
             if (y > canvas.height - 100) {
                 if (x < canvas.width / 2) moveLeft();
                 else moveRight();
@@ -148,68 +327,164 @@
             e.preventDefault();
         }, {passive: false});
         
+        function createExplosion(x, y, color) {
+            for (let i = 0; i < 10; i++) {
+                particles.push({
+                    x: x,
+                    y: y,
+                    vx: (Math.random() - 0.5) * 8,
+                    vy: (Math.random() - 0.5) * 8,
+                    life: 30,
+                    color: color
+                });
+            }
+        }
+        
+        function spawnPowerUp(x, y) {
+            if (Math.random() < 0.15) {
+                const type = powerUpTypes[Math.floor(Math.random() * powerUpTypes.length)];
+                powerUps.push({
+                    x: x,
+                    y: y,
+                    type: type.type,
+                    emoji: type.emoji,
+                    duration: type.duration
+                });
+            }
+        }
+        
+        function activatePowerUp(type) {
+            if (type === 'rapid') {
+                player.rapidFire = true;
+                document.getElementById('powerup-rapid').classList.add('active');
+                setTimeout(() => {
+                    player.rapidFire = false;
+                    document.getElementById('powerup-rapid').classList.remove('active');
+                }, 5000);
+            } else if (type === 'triple') {
+                player.tripleShot = true;
+                document.getElementById('powerup-triple').classList.add('active');
+                setTimeout(() => {
+                    player.tripleShot = false;
+                    document.getElementById('powerup-triple').classList.remove('active');
+                }, 5000);
+            } else if (type === 'shield') {
+                player.shield = true;
+                document.getElementById('powerup-shield').classList.add('active');
+                setTimeout(() => {
+                    player.shield = false;
+                    document.getElementById('powerup-shield').classList.remove('active');
+                }, 8000);
+            } else if (type === 'bomb') {
+                player.megaBomb = true;
+                document.getElementById('powerup-bomb').classList.add('active');
+            }
+        }
+        
+        function updatePowerUpUI() {
+            if (!player.megaBomb) {
+                document.getElementById('powerup-bomb').classList.remove('active');
+            }
+        }
+        
+        function nextLevel() {
+            level++;
+            document.getElementById('level').textContent = level;
+            document.getElementById('levelScreen').style.display = 'none';
+            initLevel();
+        }
+        
         function update() {
+            // Update player
             player.x += player.speed;
             if (player.x < 0) player.x = 0;
             if (player.x > canvas.width - player.width) player.x = canvas.width - player.width;
             
             // Update bullets
             for (let i = bullets.length - 1; i >= 0; i--) {
-                bullets[i].y -= bullets[i].speed;
+                bullets[i].x += bullets[i].dx || 0;
+                bullets[i].y += bullets[i].dy;
                 if (bullets[i].y < 0) bullets.splice(i, 1);
             }
             
             // Update invaders
             let moveDown = false;
+            let aliveCount = 0;
+            
             invaders.forEach(invader => {
                 if (invader.alive) {
-                    invader.x += invader.direction * 0.5;
-                    if (invader.x <= 20 || invader.x >= canvas.width - 60) moveDown = true;
+                    aliveCount++;
+                    invader.x += invaderDirection * invaderSpeed;
+                    
+                    if (invader.x <= 20 || invader.x >= canvas.width - invader.width - 20) {
+                        moveDown = true;
+                    }
                 }
             });
             
             if (moveDown) {
-                invaders.forEach(invader => {
-                    invader.direction *= -1;
-                    invader.y += 20;
+                invaderDirection *= -1;
+                invaders.forEach(inv => {
+                    if (inv.alive) inv.y += 25;
                 });
             }
             
-            // Collision detection
+            // Collision bullets vs invaders
             bullets.forEach((bullet, bIndex) => {
                 invaders.forEach((invader, iIndex) => {
                     if (invader.alive &&
                         bullet.x > invader.x && bullet.x < invader.x + invader.width &&
                         bullet.y > invader.y && bullet.y < invader.y + invader.height) {
-                        invader.alive = false;
-                        bullets.splice(bIndex, 1);
-                        score += 10;
-                        document.getElementById('score').textContent = score;
                         
-                        // Explosion particles
-                        for (let i = 0; i < 5; i++) {
-                            particles.push({
-                                x: invader.x + invader.width / 2,
-                                y: invader.y + invader.height / 2,
-                                vx: (Math.random() - 0.5) * 4,
-                                vy: (Math.random() - 0.5) * 4,
-                                life: 20
-                            });
+                        bullets.splice(bIndex, 1);
+                        invader.hp--;
+                        
+                        if (invader.hp <= 0) {
+                            invader.alive = false;
+                            score += invader.points;
+                            document.getElementById('score').textContent = score;
+                            
+                            if (score > highscore) {
+                                highscore = score;
+                                localStorage.setItem('spaceInvadersHighscore', highscore);
+                                document.getElementById('highscore').textContent = highscore;
+                            }
+                            
+                            createExplosion(invader.x + invader.width/2, invader.y + invader.height/2, invader.color);
+                            spawnPowerUp(invader.x, invader.y);
                         }
                     }
                 });
             });
             
-            // Check game over
+            // Collision player vs power-ups
+            powerUps.forEach((powerUp, index) => {
+                powerUp.y += 2;
+                if (powerUp.y > player.y && powerUp.y < player.y + player.height &&
+                    powerUp.x > player.x && powerUp.x < player.x + player.width) {
+                    activatePowerUp(powerUp.type);
+                    powerUps.splice(index, 1);
+                }
+                if (powerUp.y > canvas.height) powerUps.splice(index, 1);
+            });
+            
+            // Check invaders reaching player
             invaders.forEach(invader => {
-                if (invader.alive && invader.y > player.y - 30) {
-                    lives--;
-                    document.getElementById('lives').textContent = lives;
-                    if (lives <= 0) {
-                        alert('GAME OVER! Score: ' + score);
-                        location.reload();
+                if (invader.alive && invader.y > player.y - 40) {
+                    if (player.shield) {
+                        player.shield = false;
+                        document.getElementById('powerup-shield').classList.remove('active');
+                        invader.alive = false;
+                        createExplosion(invader.x + invader.width/2, invader.y + invader.height/2, '#fff');
                     } else {
-                        invaders.forEach(inv => { inv.y -= 100; });
+                        lives--;
+                        document.getElementById('lives').textContent = lives;
+                        if (lives <= 0) {
+                            alert('GAME OVER!\nScore: ' + score + '\nLevel: ' + level);
+                            location.reload();
+                        } else {
+                            invaders.forEach(inv => { if (inv.alive) inv.y -= 100; });
+                        }
                     }
                 }
             });
@@ -222,52 +497,108 @@
                 if (particles[i].life <= 0) particles.splice(i, 1);
             }
             
-            // Check win
-            if (invaders.every(inv => !inv.alive)) {
-                alert('GEWONNEN! Score: ' + score);
-                location.reload();
+            // Check level complete
+            if (aliveCount === 0) {
+                document.getElementById('nextLevel').textContent = level + 1;
+                document.getElementById('levelScreen').style.display = 'block';
             }
+            
+            // Update stars
+            stars.forEach(star => {
+                star.y += star.speed;
+                if (star.y > canvas.height) {
+                    star.y = 0;
+                    star.x = Math.random() * canvas.width;
+                }
+            });
         }
         
         function draw() {
-            ctx.fillStyle = '#000';
+            // Clear with gradient
+            const gradient = ctx.createLinearGradient(0, 0, 0, canvas.height);
+            gradient.addColorStop(0, '#000428');
+            gradient.addColorStop(1, '#004e92');
+            ctx.fillStyle = gradient;
             ctx.fillRect(0, 0, canvas.width, canvas.height);
             
             // Draw stars
             ctx.fillStyle = '#fff';
-            for (let i = 0; i < 50; i++) {
-                ctx.fillRect(Math.random() * canvas.width, Math.random() * canvas.height, 2, 2);
-            }
+            stars.forEach(star => {
+                ctx.globalAlpha = Math.random() * 0.5 + 0.5;
+                ctx.fillRect(star.x, star.y, star.size, star.size);
+            });
+            ctx.globalAlpha = 1;
             
             // Draw player
-            ctx.fillStyle = '#0f0';
+            ctx.fillStyle = player.shield ? '#00d9ff' : '#0f0';
+            ctx.shadowBlur = 20;
+            ctx.shadowColor = player.shield ? '#00d9ff' : '#0f0';
             ctx.fillRect(player.x, player.y, player.width, player.height);
-            ctx.fillStyle = '#00d9ff';
-            ctx.fillRect(player.x + 10, player.y - 10, 30, 10);
+            
+            // Draw player details
+            ctx.fillStyle = '#fff';
+            ctx.fillRect(player.x + 10, player.y - 10, 40, 10);
+            ctx.shadowBlur = 0;
             
             // Draw bullets
             ctx.fillStyle = '#ff0';
+            ctx.shadowBlur = 10;
+            ctx.shadowColor = '#ff0';
             bullets.forEach(bullet => {
-                ctx.fillRect(bullet.x, bullet.y, bullet.width, bullet.height);
+                ctx.fillRect(bullet.x - 2, bullet.y, 4, 15);
             });
+            ctx.shadowBlur = 0;
             
             // Draw invaders
             invaders.forEach(invader => {
                 if (invader.alive) {
-                    ctx.fillStyle = '#f0f';
+                    ctx.fillStyle = invader.color;
+                    ctx.shadowBlur = 15;
+                    ctx.shadowColor = invader.color;
                     ctx.fillRect(invader.x, invader.y, invader.width, invader.height);
+                    
+                    // Draw HP bar for bosses
+                    if (invader.maxHp > 1) {
+                        ctx.fillStyle = '#333';
+                        ctx.fillRect(invader.x, invader.y - 10, invader.width, 5);
+                        ctx.fillStyle = '#0f0';
+                        ctx.fillRect(invader.x, invader.y - 10, invader.width * (invader.hp / invader.maxHp), 5);
+                    }
+                    
+                    // Draw invader face
                     ctx.fillStyle = '#fff';
-                    ctx.fillRect(invader.x + 5, invader.y + 5, 5, 5);
-                    ctx.fillRect(invader.x + 30, invader.y + 5, 5, 5);
-                    ctx.fillRect(invader.x + 10, invader.y + 20, 20, 5);
+                    ctx.shadowBlur = 0;
+                    ctx.fillRect(invader.x + 8, invader.y + 8, 8, 8);
+                    ctx.fillRect(invader.x + 34, invader.y + 8, 8, 8);
+                    ctx.fillRect(invader.x + 12, invader.y + 25, 26, 6);
                 }
+            });
+            ctx.shadowBlur = 0;
+            
+            // Draw power-ups
+            powerUps.forEach(powerUp => {
+                ctx.font = '30px Arial';
+                ctx.textAlign = 'center';
+                ctx.fillText(powerUp.emoji, powerUp.x, powerUp.y);
+                
+                // Glow effect
+                ctx.shadowBlur = 20;
+                ctx.shadowColor = '#ffd700';
+                ctx.strokeStyle = '#ffd700';
+                ctx.lineWidth = 2;
+                ctx.beginPath();
+                ctx.arc(powerUp.x, powerUp.y - 10, 20, 0, Math.PI * 2);
+                ctx.stroke();
+                ctx.shadowBlur = 0;
             });
             
             // Draw particles
             particles.forEach(p => {
-                ctx.fillStyle = '#ff6b6b';
-                ctx.fillRect(p.x, p.y, 4, 4);
+                ctx.fillStyle = p.color;
+                ctx.globalAlpha = p.life / 30;
+                ctx.fillRect(p.x, p.y, 6, 6);
             });
+            ctx.globalAlpha = 1;
         }
         
         function loop() {
