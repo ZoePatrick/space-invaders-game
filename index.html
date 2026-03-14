@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>👾 Space Invaders V2 - Level & Power-Ups</title>
+    <title>👾 Space Invaders - Mit Sound & Musik</title>
     <style>
         * { touch-action: none; user-select: none; }
         body {
@@ -31,35 +31,6 @@
             font-size: 18px;
             text-shadow: 0 0 10px #0f0;
         }
-        .powerups {
-            display: flex;
-            gap: 10px;
-            margin-top: 10px;
-            flex-wrap: wrap;
-            justify-content: center;
-        }
-        .powerup-icon {
-            width: 50px;
-            height: 50px;
-            border: 2px solid #333;
-            border-radius: 10px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 24px;
-            opacity: 0.3;
-            transition: all 0.3s;
-        }
-        .powerup-icon.active {
-            opacity: 1;
-            border-color: #ffd700;
-            box-shadow: 0 0 15px #ffd700;
-            animation: pulse 1s infinite;
-        }
-        @keyframes pulse {
-            0%, 100% { transform: scale(1); }
-            50% { transform: scale(1.1); }
-        }
         .controls {
             display: flex;
             gap: 15px;
@@ -78,13 +49,30 @@
             justify-content: center;
             cursor: pointer;
         }
-        .btn:active { background: rgba(0, 255, 0, 0.5); transform: scale(0.95); }
+        .btn:active { background: rgba(0, 255, 0, 0.5); }
         .fire-btn {
             width: 90px;
             height: 90px;
             background: linear-gradient(135deg, #ff6b6b, #ff0000);
             border-color: #ff0000;
             font-size: 35px;
+        }
+        .audio-controls {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            display: flex;
+            gap: 10px;
+        }
+        .audio-btn {
+            width: 40px;
+            height: 40px;
+            background: rgba(0, 0, 0, 0.7);
+            border: 2px solid #0f0;
+            border-radius: 50%;
+            font-size: 20px;
+            color: #0f0;
+            cursor: pointer;
         }
         .level-screen {
             position: absolute;
@@ -129,18 +117,16 @@
         <div>Highscore: <span id="highscore">0</span></div>
     </div>
     
-    <canvas id="game" width="700" height="550"></canvas>
-    
-    <div class="powerups">
-        <div class="powerup-icon" id="powerup-rapid" title="Rapid Fire">⚡</div>
-        <div class="powerup-icon" id="powerup-triple" title="Triple Shot">🔱</div>
-        <div class="powerup-icon" id="powerup-shield" title="Shield">🛡️</div>
-        <div class="powerup-icon" id="powerup-bomb" title="Mega Bomb">💣</div>
+    <div class="audio-controls">
+        <button class="audio-btn" id="musicToggle" onclick="toggleMusic()">🎵</button>
+        <button class="audio-btn" id="sfxToggle" onclick="toggleSFX()">🔊</button>
     </div>
+    
+    <canvas id="game" width="700" height="550"></canvas>
     
     <div class="controls">
         <div class="btn" ontouchstart="moveLeft()" ontouchend="stopMove()">⬅️</div>
-        <div class="btn fire-btn" ontouchstart="fire()">🔥</div>
+        <div class="btn fire-btn" ontouchstart="startFire()" ontouchend="stopFire()">🔥</div>
         <div class="btn" ontouchstart="moveRight()" ontouchend="stopMove()">➡️</div>
     </div>
     
@@ -149,19 +135,184 @@
         <p>Gut gemacht! Bereit für den nächsten Angriff?</p>
         <button onclick="nextLevel()">WEITER ▶️</button>
     </div>
-    
+
     <script>
+        // Audio Context
+        const AudioContext = window.AudioContext || window.webkitAudioContext;
+        const audioCtx = new AudioContext();
+        
+        let musicEnabled = true;
+        let sfxEnabled = true;
+        let musicOscillator = null;
+        let musicGain = null;
+        let musicInterval = null;
+        
+        // Sound Effects
+        function playShootSound() {
+            if (!sfxEnabled) return;
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            
+            osc.connect(gain);
+            gain.connect(audioCtx.destination);
+            
+            osc.frequency.setValueAtTime(800, audioCtx.currentTime);
+            osc.frequency.exponentialRampToValueAtTime(400, audioCtx.currentTime + 0.1);
+            
+            gain.gain.setValueAtTime(0.3, audioCtx.currentTime);
+            gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.1);
+            
+            osc.start(audioCtx.currentTime);
+            osc.stop(audioCtx.currentTime + 0.1);
+        }
+        
+        function playExplosionSound() {
+            if (!sfxEnabled) return;
+            // Create noise buffer
+            const bufferSize = audioCtx.sampleRate * 0.3;
+            const buffer = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate);
+            const data = buffer.getChannelData(0);
+            
+            for (let i = 0; i < bufferSize; i++) {
+                data[i] = Math.random() * 2 - 1;
+            }
+            
+            const noise = audioCtx.createBufferSource();
+            noise.buffer = buffer;
+            
+            const gain = audioCtx.createGain();
+            const filter = audioCtx.createBiquadFilter();
+            
+            filter.type = 'lowpass';
+            filter.frequency.value = 1000;
+            
+            noise.connect(filter);
+            filter.connect(gain);
+            gain.connect(audioCtx.destination);
+            
+            gain.gain.setValueAtTime(0.5, audioCtx.currentTime);
+            gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.3);
+            
+            noise.start(audioCtx.currentTime);
+        }
+        
+        function playPowerUpSound() {
+            if (!sfxEnabled) return;
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            
+            osc.connect(gain);
+            gain.connect(audioCtx.destination);
+            
+            osc.type = 'sine';
+            osc.frequency.setValueAtTime(400, audioCtx.currentTime);
+            osc.frequency.linearRampToValueAtTime(800, audioCtx.currentTime + 0.1);
+            osc.frequency.linearRampToValueAtTime(1200, audioCtx.currentTime + 0.2);
+            
+            gain.gain.setValueAtTime(0.3, audioCtx.currentTime);
+            gain.gain.linearRampToValueAtTime(0, audioCtx.currentTime + 0.3);
+            
+            osc.start(audioCtx.currentTime);
+            osc.stop(audioCtx.currentTime + 0.3);
+        }
+        
+        function playLevelUpSound() {
+            if (!sfxEnabled) return;
+            const notes = [523.25, 659.25, 783.99, 1046.50]; // C major chord
+            notes.forEach((freq, i) => {
+                const osc = audioCtx.createOscillator();
+                const gain = audioCtx.createGain();
+                
+                osc.connect(gain);
+                gain.connect(audioCtx.destination);
+                
+                osc.type = 'square';
+                osc.frequency.value = freq;
+                
+                gain.gain.setValueAtTime(0, audioCtx.currentTime + i * 0.1);
+                gain.gain.linearRampToValueAtTime(0.2, audioCtx.currentTime + i * 0.1 + 0.05);
+                gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + i * 0.1 + 0.4);
+                
+                osc.start(audioCtx.currentTime + i * 0.1);
+                osc.stop(audioCtx.currentTime + i * 0.1 + 0.5);
+            });
+        }
+        
+        // Background Music
+        function startMusic() {
+            if (!musicEnabled || musicOscillator) return;
+            
+            const baseFreq = 110; // A2
+            const notes = [baseFreq, baseFreq * 1.5, baseFreq * 2, baseFreq * 1.33]; // A, E, A, F#
+            let noteIndex = 0;
+            
+            function playNote() {
+                if (!musicEnabled) return;
+                
+                musicOscillator = audioCtx.createOscillator();
+                musicGain = audioCtx.createGain();
+                
+                musicOscillator.connect(musicGain);
+                musicGain.connect(audioCtx.destination);
+                
+                musicOscillator.type = 'sawtooth';
+                musicOscillator.frequency.value = notes[noteIndex];
+                
+                musicGain.gain.setValueAtTime(0.05, audioCtx.currentTime);
+                musicGain.gain.exponentialRampToValueAtTime(0.02, audioCtx.currentTime + 0.4);
+                
+                musicOscillator.start(audioCtx.currentTime);
+                musicOscillator.stop(audioCtx.currentTime + 0.5);
+                
+                noteIndex = (noteIndex + 1) % notes.length;
+                
+                musicOscillator.onended = () => {
+                    musicOscillator = null;
+                    if (musicEnabled) {
+                        setTimeout(playNote, 100);
+                    }
+                };
+            }
+            
+            playNote();
+        }
+        
+        function stopMusic() {
+            musicEnabled = false;
+            if (musicOscillator) {
+                try {
+                    musicOscillator.stop();
+                } catch(e) {}
+            }
+        }
+        
+        function toggleMusic() {
+            musicEnabled = !musicEnabled;
+            document.getElementById('musicToggle').textContent = musicEnabled ? '🎵' : '🔇';
+            if (musicEnabled) startMusic();
+        }
+        
+        function toggleSFX() {
+            sfxEnabled = !sfxEnabled;
+            document.getElementById('sfxToggle').textContent = sfxEnabled ? '🔊' : '🔈';
+        }
+        
+        // Start music on first interaction
+        document.addEventListener('click', () => {
+            if (audioCtx.state === 'suspended') {
+                audioCtx.resume();
+            }
+            startMusic();
+        }, { once: true });
+        
+        // Game code
         const canvas = document.getElementById('game');
         const ctx = canvas.getContext('2d');
         
-        // Game state
-        let score = 0;
-        let level = 1;
-        let lives = 3;
-        let highscore = localStorage.getItem('spaceInvadersHighscore') || 0;
+        let score = 0, level = 1, lives = 3;
+        let highscore = localStorage.getItem('spaceInvadersAudioHighscore') || 0;
         document.getElementById('highscore').textContent = highscore;
         
-        // Player
         const player = {
             x: canvas.width / 2 - 30,
             y: canvas.height - 70,
@@ -174,16 +325,14 @@
             megaBomb: false
         };
         
-        // Bullets
         const bullets = [];
         let lastShot = 0;
+        let isFiring = false; // For autofire
         
-        // Invaders
         let invaders = [];
         let invaderDirection = 1;
         let invaderSpeed = 0.3;
         
-        // Power-ups
         const powerUps = [];
         const powerUpTypes = [
             { type: 'rapid', emoji: '⚡', duration: 5000 },
@@ -192,11 +341,9 @@
             { type: 'bomb', emoji: '💣', duration: 0 }
         ];
         
-        // Particles
         const particles = [];
-        
-        // Stars background
         const stars = [];
+        
         for (let i = 0; i < 100; i++) {
             stars.push({
                 x: Math.random() * canvas.width,
@@ -206,7 +353,6 @@
             });
         }
         
-        // Initialize level
         function initLevel() {
             invaders = [];
             const rows = 3 + level;
@@ -214,26 +360,14 @@
             
             for (let row = 0; row < rows; row++) {
                 for (let col = 0; col < cols; col++) {
-                    let type = 'normal';
-                    let hp = 1;
-                    let color = '#f0f';
-                    let points = 10;
+                    let type = 'normal', hp = 1, color = '#f0f', points = 10;
                     
                     if (row === 0) {
-                        type = 'boss';
-                        hp = 3;
-                        color = '#ff0000';
-                        points = 50;
+                        type = 'boss'; hp = 3; color = '#ff0000'; points = 50;
                     } else if (row === 1) {
-                        type = 'tank';
-                        hp = 2;
-                        color = '#ff8800';
-                        points = 25;
+                        type = 'tank'; hp = 2; color = '#ff8800'; points = 25;
                     } else if (row === rows - 1) {
-                        type = 'fast';
-                        hp = 1;
-                        color = '#00ffff';
-                        points = 15;
+                        type = 'fast'; hp = 1; color = '#00ffff'; points = 15;
                     }
                     
                     invaders.push({
@@ -250,7 +384,6 @@
                     });
                 }
             }
-            
             invaderSpeed = 0.3 + (level * 0.1);
         }
         
@@ -263,23 +396,22 @@
         
         function fire() {
             const now = Date.now();
-            const fireRate = player.rapidFire ? 100 : 300;
+            const fireRate = player.rapidFire ? 100 : 250;
             
             if (now - lastShot > fireRate) {
                 lastShot = now;
+                playShootSound();
                 
                 if (player.megaBomb) {
-                    // Mega bomb - destroys all invaders
                     invaders.forEach(inv => {
                         if (inv.alive) {
                             inv.hp = 0;
-                            if (inv.hp <= 0) {
-                                inv.alive = false;
-                                score += inv.points;
-                                createExplosion(inv.x + inv.width/2, inv.y + inv.height/2, inv.color);
-                            }
+                            inv.alive = false;
+                            score += inv.points;
+                            createExplosion(inv.x + inv.width/2, inv.y + inv.height/2, inv.color);
                         }
                     });
+                    playExplosionSound();
                     player.megaBomb = false;
                     updatePowerUpUI();
                 } else if (player.tripleShot) {
@@ -292,13 +424,21 @@
             }
         }
         
-        // Keyboard
+        // Autofire functions
+        function startFire() { isFiring = true; }
+        function stopFire() { isFiring = false; }
+        
+        // Keyboard with autofire
         document.addEventListener('keydown', (e) => {
             if (e.key === 'ArrowLeft') moveLeft();
             if (e.key === 'ArrowRight') moveRight();
-            if (e.key === ' ') fire();
+            if (e.key === ' ') isFiring = true;
         });
-        document.addEventListener('keyup', stopMove);
+        
+        document.addEventListener('keyup', (e) => {
+            if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') stopMove();
+            if (e.key === ' ') isFiring = false;
+        });
         
         // Touch
         canvas.addEventListener('touchstart', (e) => {
@@ -310,13 +450,14 @@
                 if (x < canvas.width / 2) moveLeft();
                 else moveRight();
             } else {
-                fire();
+                isFiring = true;
             }
             e.preventDefault();
         }, {passive: false});
         
         canvas.addEventListener('touchend', (e) => {
             stopMove();
+            isFiring = false;
             e.preventDefault();
         }, {passive: false});
         
@@ -328,7 +469,7 @@
         }, {passive: false});
         
         function createExplosion(x, y, color) {
-            for (let i = 0; i < 10; i++) {
+            for (let i = 0; i < 15; i++) {
                 particles.push({
                     x: x,
                     y: y,
@@ -354,82 +495,61 @@
         }
         
         function activatePowerUp(type) {
+            playPowerUpSound();
             if (type === 'rapid') {
                 player.rapidFire = true;
-                document.getElementById('powerup-rapid').classList.add('active');
-                setTimeout(() => {
-                    player.rapidFire = false;
-                    document.getElementById('powerup-rapid').classList.remove('active');
-                }, 5000);
+                setTimeout(() => player.rapidFire = false, 5000);
             } else if (type === 'triple') {
                 player.tripleShot = true;
-                document.getElementById('powerup-triple').classList.add('active');
-                setTimeout(() => {
-                    player.tripleShot = false;
-                    document.getElementById('powerup-triple').classList.remove('active');
-                }, 5000);
+                setTimeout(() => player.tripleShot = false, 5000);
             } else if (type === 'shield') {
                 player.shield = true;
-                document.getElementById('powerup-shield').classList.add('active');
-                setTimeout(() => {
-                    player.shield = false;
-                    document.getElementById('powerup-shield').classList.remove('active');
-                }, 8000);
+                setTimeout(() => player.shield = false, 8000);
             } else if (type === 'bomb') {
                 player.megaBomb = true;
-                document.getElementById('powerup-bomb').classList.add('active');
             }
         }
         
         function updatePowerUpUI() {
-            if (!player.megaBomb) {
-                document.getElementById('powerup-bomb').classList.remove('active');
-            }
+            // UI update if needed
         }
         
         function nextLevel() {
             level++;
             document.getElementById('level').textContent = level;
             document.getElementById('levelScreen').style.display = 'none';
+            playLevelUpSound();
             initLevel();
         }
         
         function update() {
-            // Update player
+            // Autofire
+            if (isFiring) fire();
+            
             player.x += player.speed;
             if (player.x < 0) player.x = 0;
             if (player.x > canvas.width - player.width) player.x = canvas.width - player.width;
             
-            // Update bullets
             for (let i = bullets.length - 1; i >= 0; i--) {
                 bullets[i].x += bullets[i].dx || 0;
                 bullets[i].y += bullets[i].dy;
                 if (bullets[i].y < 0) bullets.splice(i, 1);
             }
             
-            // Update invaders
-            let moveDown = false;
-            let aliveCount = 0;
-            
+            let moveDown = false, aliveCount = 0;
             invaders.forEach(invader => {
                 if (invader.alive) {
                     aliveCount++;
                     invader.x += invaderDirection * invaderSpeed;
-                    
-                    if (invader.x <= 20 || invader.x >= canvas.width - invader.width - 20) {
-                        moveDown = true;
-                    }
+                    if (invader.x <= 20 || invader.x >= canvas.width - 70) moveDown = true;
                 }
             });
             
             if (moveDown) {
                 invaderDirection *= -1;
-                invaders.forEach(inv => {
-                    if (inv.alive) inv.y += 25;
-                });
+                invaders.forEach(inv => { if (inv.alive) inv.y += 25; });
             }
             
-            // Collision bullets vs invaders
             bullets.forEach((bullet, bIndex) => {
                 invaders.forEach((invader, iIndex) => {
                     if (invader.alive &&
@@ -446,18 +566,18 @@
                             
                             if (score > highscore) {
                                 highscore = score;
-                                localStorage.setItem('spaceInvadersHighscore', highscore);
+                                localStorage.setItem('spaceInvadersAudioHighscore', highscore);
                                 document.getElementById('highscore').textContent = highscore;
                             }
                             
-                            createExplosion(invader.x + invader.width/2, invader.y + invader.height/2, invader.color);
+                            createExplosion(invader.x + inv.width/2, inv.y + inv.height/2, inv.color);
+                            playExplosionSound();
                             spawnPowerUp(invader.x, invader.y);
                         }
                     }
                 });
             });
             
-            // Collision player vs power-ups
             powerUps.forEach((powerUp, index) => {
                 powerUp.y += 2;
                 if (powerUp.y > player.y && powerUp.y < player.y + player.height &&
@@ -468,19 +588,18 @@
                 if (powerUp.y > canvas.height) powerUps.splice(index, 1);
             });
             
-            // Check invaders reaching player
             invaders.forEach(invader => {
                 if (invader.alive && invader.y > player.y - 40) {
                     if (player.shield) {
                         player.shield = false;
-                        document.getElementById('powerup-shield').classList.remove('active');
                         invader.alive = false;
                         createExplosion(invader.x + invader.width/2, invader.y + invader.height/2, '#fff');
+                        playExplosionSound();
                     } else {
                         lives--;
                         document.getElementById('lives').textContent = lives;
                         if (lives <= 0) {
-                            alert('GAME OVER!\nScore: ' + score + '\nLevel: ' + level);
+                            alert('GAME OVER! Score: ' + score + ' | Level: ' + level);
                             location.reload();
                         } else {
                             invaders.forEach(inv => { if (inv.alive) inv.y -= 100; });
@@ -489,7 +608,6 @@
                 }
             });
             
-            // Update particles
             for (let i = particles.length - 1; i >= 0; i--) {
                 particles[i].x += particles[i].vx;
                 particles[i].y += particles[i].vy;
@@ -497,13 +615,11 @@
                 if (particles[i].life <= 0) particles.splice(i, 1);
             }
             
-            // Check level complete
             if (aliveCount === 0) {
                 document.getElementById('nextLevel').textContent = level + 1;
                 document.getElementById('levelScreen').style.display = 'block';
             }
             
-            // Update stars
             stars.forEach(star => {
                 star.y += star.speed;
                 if (star.y > canvas.height) {
@@ -514,14 +630,12 @@
         }
         
         function draw() {
-            // Clear with gradient
             const gradient = ctx.createLinearGradient(0, 0, 0, canvas.height);
             gradient.addColorStop(0, '#000428');
             gradient.addColorStop(1, '#004e92');
             ctx.fillStyle = gradient;
             ctx.fillRect(0, 0, canvas.width, canvas.height);
             
-            // Draw stars
             ctx.fillStyle = '#fff';
             stars.forEach(star => {
                 ctx.globalAlpha = Math.random() * 0.5 + 0.5;
@@ -529,18 +643,16 @@
             });
             ctx.globalAlpha = 1;
             
-            // Draw player
+            // Player
             ctx.fillStyle = player.shield ? '#00d9ff' : '#0f0';
             ctx.shadowBlur = 20;
             ctx.shadowColor = player.shield ? '#00d9ff' : '#0f0';
             ctx.fillRect(player.x, player.y, player.width, player.height);
-            
-            // Draw player details
             ctx.fillStyle = '#fff';
             ctx.fillRect(player.x + 10, player.y - 10, 40, 10);
             ctx.shadowBlur = 0;
             
-            // Draw bullets
+            // Bullets
             ctx.fillStyle = '#ff0';
             ctx.shadowBlur = 10;
             ctx.shadowColor = '#ff0';
@@ -549,7 +661,7 @@
             });
             ctx.shadowBlur = 0;
             
-            // Draw invaders
+            // Invaders
             invaders.forEach(invader => {
                 if (invader.alive) {
                     ctx.fillStyle = invader.color;
@@ -557,42 +669,34 @@
                     ctx.shadowColor = invader.color;
                     ctx.fillRect(invader.x, invader.y, invader.width, invader.height);
                     
-                    // Draw HP bar for bosses
-                    if (invader.maxHp > 1) {
-                        ctx.fillStyle = '#333';
-                        ctx.fillRect(invader.x, invader.y - 10, invader.width, 5);
-                        ctx.fillStyle = '#0f0';
-                        ctx.fillRect(invader.x, invader.y - 10, invader.width * (invader.hp / invader.maxHp), 5);
-                    }
-                    
-                    // Draw invader face
                     ctx.fillStyle = '#fff';
                     ctx.shadowBlur = 0;
                     ctx.fillRect(invader.x + 8, invader.y + 8, 8, 8);
                     ctx.fillRect(invader.x + 34, invader.y + 8, 8, 8);
                     ctx.fillRect(invader.x + 12, invader.y + 25, 26, 6);
+                    
+                    if (invader.maxHp > 1) {
+                        ctx.fillStyle = '#333';
+                        ctx.fillRect(invader.x, invader.y - 12, invader.width, 6);
+                        ctx.fillStyle = invader.hp > 1 ? '#0f0' : '#f00';
+                        ctx.fillRect(invader.x + 1, invader.y - 11, (invader.width - 2) * (invader.hp / invader.maxHp), 4);
+                    }
                 }
             });
-            ctx.shadowBlur = 0;
             
-            // Draw power-ups
+            // Power-ups
             powerUps.forEach(powerUp => {
                 ctx.font = '30px Arial';
                 ctx.textAlign = 'center';
                 ctx.fillText(powerUp.emoji, powerUp.x, powerUp.y);
-                
-                // Glow effect
-                ctx.shadowBlur = 20;
-                ctx.shadowColor = '#ffd700';
                 ctx.strokeStyle = '#ffd700';
                 ctx.lineWidth = 2;
                 ctx.beginPath();
                 ctx.arc(powerUp.x, powerUp.y - 10, 20, 0, Math.PI * 2);
                 ctx.stroke();
-                ctx.shadowBlur = 0;
             });
             
-            // Draw particles
+            // Particles
             particles.forEach(p => {
                 ctx.fillStyle = p.color;
                 ctx.globalAlpha = p.life / 30;
